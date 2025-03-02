@@ -19,22 +19,19 @@ ENTRYPOINT steam && sunshine
 
 ### SUNSHINE_VERSION
 - `latest`, `master`, `vX.X.X`
-- `nightly`
 - commit hash
 
 ### SUNSHINE_OS
 Sunshine images are available with the following tag suffixes, based on their respective base images.
 
 - `archlinux`
-- `debian-bullseye`
-- `fedora-36`
-- `fedora-37`
-- `ubuntu-20.04`
+- `debian-bookworm`
 - `ubuntu-22.04`
+- `ubuntu-24.04`
 
 ### Tags
 You must combine the `SUNSHINE_VERSION` and `SUNSHINE_OS` to determine the tag to pull. The format should be
-`<SUNSHINE_VERSION>-<SUNSHINE_OS>`. For example, `latest-ubuntu-22.04`.
+`<SUNSHINE_VERSION>-<SUNSHINE_OS>`. For example, `latest-ubuntu-24.04`.
 
 See all our available tags on [docker hub](https://hub.docker.com/r/lizardbyte/sunshine/tags) or
 [ghcr](https://github.com/LizardByte/Sunshine/pkgs/container/sunshine/versions) for more info.
@@ -55,6 +52,7 @@ docker run -d \
   --device /dev/dri/ \
   --name=<image_name> \
   --restart=unless-stopped \
+  --ipc=host \
   -e PUID=<uid> \
   -e PGID=<gid> \
   -e TZ=<timezone> \
@@ -81,6 +79,7 @@ services:
       - PUID=<uid>
       - PGID=<gid>
       - TZ=<timezone>
+    ipc: host
     ports:
       - "47984-47990:47984-47990/tcp"
       - "48010:48010"
@@ -126,6 +125,9 @@ port `47990` (e.g. `http://<host_ip>:47990`). The internal port must be `47990`,
 | `-e PGID=<gid>`             | Group ID             | `1001`             | False    |
 | `-e TZ=<timezone>`          | Lookup [TZ value][1] | `America/New_York` | False    |
 
+For additional configuration, it is recommended to reference the *Games on Whales*
+[sunshine config](https://github.com/games-on-whales/gow/blob/2e442292d79b9d996f886b8a03d22b6eb6bddf7b/compose/streamers/sunshine.yml).
+
 [1]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
 #### User / Group Identifiers:
@@ -153,8 +155,18 @@ The architectures supported by these images are shown in the table below.
 |-----------------|--------------|---------------|
 | archlinux       | ✅            | ❌             |
 | debian-bookworm | ✅            | ✅             |
-| debian-bullseye | ✅            | ✅             |
-| fedora-38       | ✅            | ✅             |
-| fedora-39       | ✅            | ✅             |
-| ubuntu-20.04    | ✅            | ✅             |
 | ubuntu-22.04    | ✅            | ✅             |
+| ubuntu-24.04    | ✅            | ✅             |
+
+<div class="section_buttons">
+
+| Previous                       |                                                 Next |
+|:-------------------------------|-----------------------------------------------------:|
+| [Changelog](docs/changelog.md) | [Third-Party Packages](docs/third_party_packages.md) |
+
+</div>
+
+<details style="display: none;">
+  <summary></summary>
+  [TOC]
+</details>

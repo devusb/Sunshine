@@ -1,7 +1,9 @@
 # windows specific dependencies
 
-set(Boost_USE_STATIC_LIBS ON)  # cmake-lint: disable=C0103
-find_package(Boost 1.71.0 COMPONENTS locale log filesystem program_options REQUIRED)
+# Make sure MinHook is installed
+find_library(MINHOOK_LIBRARY libMinHook.a REQUIRED)
+find_path(MINHOOK_INCLUDE_DIR MinHook.h PATH_SUFFIXES include REQUIRED)
 
-# nlohmann_json
-pkg_check_modules(NLOHMANN_JSON nlohmann_json REQUIRED IMPORTED_TARGET)
+add_library(minhook::minhook STATIC IMPORTED)
+set_property(TARGET minhook::minhook PROPERTY IMPORTED_LOCATION ${MINHOOK_LIBRARY})
+target_include_directories(minhook::minhook INTERFACE ${MINHOOK_INCLUDE_DIR})

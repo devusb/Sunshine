@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1
 # artifacts: false
 # platforms: linux/amd64
 # platforms_pr: linux/amd64
@@ -9,13 +9,17 @@ FROM ${BASE}:${TAG} AS toolchain-base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-FROM toolchain-base as toolchain
+FROM toolchain-base AS toolchain
 
 ARG TARGETPLATFORM
 RUN echo "target_platform: ${TARGETPLATFORM}"
 
+ENV DISPLAY=:0
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # install dependencies
+# hadolint ignore=SC1091
 RUN <<_DEPS
 #!/bin/bash
 set -e
@@ -24,16 +28,13 @@ apt-get install -y --no-install-recommends \
   build-essential \
   cmake=3.22.* \
   ca-certificates \
+  doxygen \
   gcc=4:11.2.* \
   g++=4:11.2.* \
   gdb \
   git \
+  graphviz \
   libayatana-appindicator3-dev \
-  libavdevice-dev \
-  libboost-filesystem-dev=1.74.* \
-  libboost-locale-dev=1.74.* \
-  libboost-log-dev=1.74.* \
-  libboost-program-options-dev=1.74.* \
   libcap-dev \
   libcurl4-openssl-dev \
   libdrm-dev \
@@ -45,7 +46,6 @@ apt-get install -y --no-install-recommends \
   libpulse-dev \
   libssl-dev \
   libva-dev \
-  libvdpau-dev \
   libwayland-dev \
   libx11-dev \
   libxcb-shm0-dev \
@@ -55,27 +55,19 @@ apt-get install -y --no-install-recommends \
   libxrandr-dev \
   libxtst-dev \
   udev \
-  wget
-if [[ "${TARGETPLATFORM}" == 'linux/amd64' ]]; then
-  apt-get install -y --no-install-recommends \
-    libmfx-dev
-fi
+  wget \
+  x11-xserver-utils \
+  xvfb
 apt-get clean
 rm -rf /var/lib/apt/lists/*
-_DEPS
 
-#Install Node
-# hadolint ignore=SC1091
-RUN <<_INSTALL_NODE
-#!/bin/bash
-set -e
-node_version="20.9.0"
-wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+# Install Node
+wget --max-redirect=0 -qO- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
 source "$HOME/.nvm/nvm.sh"
-nvm install "$node_version"
-nvm use "$node_version"
-nvm alias default "$node_version"
-_INSTALL_NODE
+nvm install node
+nvm use node
+nvm alias default node
+_DEPS
 
 # install cuda
 WORKDIR /build/cuda
@@ -98,3 +90,28 @@ chmod a+x ./cuda.run
 ./cuda.run --silent --toolkit --toolkitpath=/usr/local --no-opengl-libs --no-man-page --no-drm
 rm ./cuda.run
 _INSTALL_CUDA
+
+WORKDIR /
+# Write a shell script that starts Xvfb and then runs a shell
+RUN <<_ENTRYPOINT
+#!/bin/bash
+set -e
+cat <<EOF > /entrypoint.sh
+#!/bin/bash
+Xvfb ${DISPLAY} -screen 0 1024x768x24 &
+if [ "\$#" -eq 0 ]; then
+  exec "/bin/bash"
+else
+  exec "\$@"
+fi
+EOF
+
+# Make the script executable
+chmod +x /entrypoint.sh
+
+# Note about CLion
+echo "ATTENTION: CLion will override the entrypoint, you can disable this in the toolchain settings"
+_ENTRYPOINT
+
+# Use the shell script as the entrypoint
+ENTRYPOINT ["/entrypoint.sh"]

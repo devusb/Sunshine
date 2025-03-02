@@ -1,9 +1,10 @@
 /**
  * @file src/config.h
- * @brief todo
+ * @brief Declarations for the configuration of Sunshine.
  */
 #pragma once
 
+// standard includes
 #include <bitset>
 #include <chrono>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+// local includes
 #include "nvenc/nvenc_config.h"
 
 namespace config {
@@ -22,6 +24,7 @@ namespace config {
     int av1_mode;
 
     int min_threads;  // Minimum number of threads/slices for CPU encoding
+
     struct {
       std::string sw_preset;
       std::string sw_tune;
@@ -48,15 +51,16 @@ namespace config {
     } qsv;
 
     struct {
-      std::optional<int> amd_quality_h264;
-      std::optional<int> amd_quality_hevc;
-      std::optional<int> amd_quality_av1;
-      std::optional<int> amd_rc_h264;
-      std::optional<int> amd_rc_hevc;
-      std::optional<int> amd_rc_av1;
       std::optional<int> amd_usage_h264;
       std::optional<int> amd_usage_hevc;
       std::optional<int> amd_usage_av1;
+      std::optional<int> amd_rc_h264;
+      std::optional<int> amd_rc_hevc;
+      std::optional<int> amd_rc_av1;
+      std::optional<int> amd_enforce_hrd;
+      std::optional<int> amd_quality_h264;
+      std::optional<int> amd_quality_hevc;
+      std::optional<int> amd_quality_av1;
       std::optional<int> amd_preanalysis;
       std::optional<int> amd_vbaq;
       int amd_coder;
@@ -69,10 +73,72 @@ namespace config {
       int vt_coder;
     } vt;
 
+    struct {
+      bool strict_rc_buffer;
+    } vaapi;
+
     std::string capture;
     std::string encoder;
     std::string adapter_name;
     std::string output_name;
+
+    struct dd_t {
+      struct workarounds_t {
+        std::chrono::milliseconds hdr_toggle_delay;  ///< Specify whether to apply HDR high-contrast color workaround and what delay to use.
+      };
+
+      enum class config_option_e {
+        disabled,  ///< Disable the configuration for the device.
+        verify_only,  ///< @seealso{display_device::SingleDisplayConfiguration::DevicePreparation}
+        ensure_active,  ///< @seealso{display_device::SingleDisplayConfiguration::DevicePreparation}
+        ensure_primary,  ///< @seealso{display_device::SingleDisplayConfiguration::DevicePreparation}
+        ensure_only_display  ///< @seealso{display_device::SingleDisplayConfiguration::DevicePreparation}
+      };
+
+      enum class resolution_option_e {
+        disabled,  ///< Do not change resolution.
+        automatic,  ///< Change resolution and use the one received from Moonlight.
+        manual  ///< Change resolution and use the manually provided one.
+      };
+
+      enum class refresh_rate_option_e {
+        disabled,  ///< Do not change refresh rate.
+        automatic,  ///< Change refresh rate and use the one received from Moonlight.
+        manual  ///< Change refresh rate and use the manually provided one.
+      };
+
+      enum class hdr_option_e {
+        disabled,  ///< Do not change HDR settings.
+        automatic  ///< Change HDR settings and use the state requested by Moonlight.
+      };
+
+      struct mode_remapping_entry_t {
+        std::string requested_resolution;
+        std::string requested_fps;
+        std::string final_resolution;
+        std::string final_refresh_rate;
+      };
+
+      struct mode_remapping_t {
+        std::vector<mode_remapping_entry_t> mixed;  ///< To be used when `resolution_option` and `refresh_rate_option` is set to `automatic`.
+        std::vector<mode_remapping_entry_t> resolution_only;  ///< To be use when only `resolution_option` is set to `automatic`.
+        std::vector<mode_remapping_entry_t> refresh_rate_only;  ///< To be use when only `refresh_rate_option` is set to `automatic`.
+      };
+
+      config_option_e configuration_option;
+      resolution_option_e resolution_option;
+      std::string manual_resolution;  ///< Manual resolution in case `resolution_option == resolution_option_e::manual`.
+      refresh_rate_option_e refresh_rate_option;
+      std::string manual_refresh_rate;  ///< Manual refresh rate in case `refresh_rate_option == refresh_rate_option_e::manual`.
+      hdr_option_e hdr_option;
+      std::chrono::milliseconds config_revert_delay;  ///< Time to wait until settings are reverted (after stream ends/app exists).
+      bool config_revert_on_disconnect;  ///< Specify whether to revert display configuration on client disconnect.
+      mode_remapping_t mode_remapping;
+      workarounds_t wa;
+    } dd;
+
+    int min_fps_factor;  // Minimum fps target, determines minimum frame time
+    int max_bitrate;  // Maximum bitrate, sets ceiling in kbps for bitrate requested from client
   };
 
   struct audio_t {
@@ -92,9 +158,6 @@ namespace config {
 
     int fec_percentage;
 
-    // max unique instances of video and audio streams
-    int channels;
-
     // Video encryption settings for LAN and WAN streams
     int lan_encryption_mode;
     int wan_encryption_mode;
@@ -113,8 +176,6 @@ namespace config {
     std::string file_state;
 
     std::string external_ip;
-    std::vector<std::string> resolutions;
-    std::vector<int> fps;
   };
 
   struct input_t {
@@ -141,25 +202,34 @@ namespace config {
 
   namespace flag {
     enum flag_e : std::size_t {
-      PIN_STDIN = 0,  // Read PIN from stdin instead of http
-      FRESH_STATE,  // Do not load or save state
-      FORCE_VIDEO_HEADER_REPLACE,  // force replacing headers inside video data
-      UPNP,  // Try Universal Plug 'n Play
-      CONST_PIN,  // Use "universal" pin
-      FLAG_SIZE
+      PIN_STDIN = 0,  ///< Read PIN from stdin instead of http
+      FRESH_STATE,  ///< Do not load or save state
+      FORCE_VIDEO_HEADER_REPLACE,  ///< force replacing headers inside video data
+      UPNP,  ///< Try Universal Plug 'n Play
+      CONST_PIN,  ///< Use "universal" pin
+      FLAG_SIZE  ///< Number of flags
     };
-  }
+  }  // namespace flag
 
   struct prep_cmd_t {
     prep_cmd_t(std::string &&do_cmd, std::string &&undo_cmd, bool &&elevated):
-        do_cmd(std::move(do_cmd)), undo_cmd(std::move(undo_cmd)), elevated(std::move(elevated)) {}
+        do_cmd(std::move(do_cmd)),
+        undo_cmd(std::move(undo_cmd)),
+        elevated(std::move(elevated)) {
+    }
+
     explicit prep_cmd_t(std::string &&do_cmd, bool &&elevated):
-        do_cmd(std::move(do_cmd)), elevated(std::move(elevated)) {}
+        do_cmd(std::move(do_cmd)),
+        elevated(std::move(elevated)) {
+    }
+
     std::string do_cmd;
     std::string undo_cmd;
     bool elevated;
   };
+
   struct sunshine_t {
+    std::string locale;
     int min_log_level;
     std::bitset<flag::FLAG_SIZE> flags;
     std::string credentials_file;
@@ -180,7 +250,7 @@ namespace config {
     std::string address_family;
 
     std::string log_file;
-
+    bool notify_pre_releases;
     std::vector<prep_cmd_t> prep_cmds;
   };
 
@@ -191,8 +261,6 @@ namespace config {
   extern input_t input;
   extern sunshine_t sunshine;
 
-  int
-  parse(int argc, char *argv[]);
-  std::unordered_map<std::string, std::string>
-  parse_config(const std::string_view &file_content);
+  int parse(int argc, char *argv[]);
+  std::unordered_map<std::string, std::string> parse_config(const std::string_view &file_content);
 }  // namespace config

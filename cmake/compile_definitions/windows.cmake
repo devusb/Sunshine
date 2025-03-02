@@ -9,6 +9,9 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 # gcc complains about misleading indentation in some mingw includes
 list(APPEND SUNSHINE_COMPILE_OPTIONS -Wno-misleading-indentation)
 
+# see gcc bug 98723
+add_definitions(-DUSE_BOOST_REGEX)
+
 # curl
 add_definitions(-DCURL_STATICLIB)
 include_directories(SYSTEM ${CURL_STATIC_INCLUDE_DIRS})
@@ -29,16 +32,6 @@ file(GLOB NVPREFS_FILES CONFIGURE_DEPENDS
 
 # vigem
 include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/third-party/ViGEmClient/include")
-set_source_files_properties("${CMAKE_SOURCE_DIR}/third-party/ViGEmClient/src/ViGEmClient.cpp"
-        PROPERTIES COMPILE_DEFINITIONS "UNICODE=1;ERROR_INVALID_DEVICE_OBJECT_PARAMETER=650")
-set(VIGEM_COMPILE_FLAGS "")
-string(APPEND VIGEM_COMPILE_FLAGS "-Wno-unknown-pragmas ")
-string(APPEND VIGEM_COMPILE_FLAGS "-Wno-misleading-indentation ")
-string(APPEND VIGEM_COMPILE_FLAGS "-Wno-class-memaccess ")
-string(APPEND VIGEM_COMPILE_FLAGS "-Wno-unused-function ")
-string(APPEND VIGEM_COMPILE_FLAGS "-Wno-unused-variable ")
-set_source_files_properties("${CMAKE_SOURCE_DIR}/third-party/ViGEmClient/src/ViGEmClient.cpp"
-        PROPERTIES COMPILE_FLAGS ${VIGEM_COMPILE_FLAGS})
 
 # sunshine icon
 if(NOT DEFINED SUNSHINE_ICON_PATH)
@@ -57,6 +50,7 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/windows/display_base.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/display_vram.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/display_ram.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/windows/display_wgc.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/audio.cpp"
         "${CMAKE_SOURCE_DIR}/third-party/ViGEmClient/src/ViGEmClient.cpp"
         "${CMAKE_SOURCE_DIR}/third-party/ViGEmClient/include/ViGEm/Client.h"
@@ -70,24 +64,28 @@ set(OPENSSL_LIBRARIES
         libcrypto.a)
 
 list(PREPEND PLATFORM_LIBRARIES
+        ${CURL_STATIC_LIBRARIES}
+        avrt
+        d3d11
+        D3DCompiler
+        dwmapi
+        dxgi
+        iphlpapi
+        ksuser
+        libssp.a
         libstdc++.a
         libwinpthread.a
-        libssp.a
-        ksuser
-        wsock32
-        ws2_32
-        d3d11 dxgi D3DCompiler
+        minhook::minhook
+        ntdll
         setupapi
-        dwmapi
-        userenv
-        synchronization.lib
-        avrt
-        iphlpapi
         shlwapi
-        PkgConfig::NLOHMANN_JSON
-        ${CURL_STATIC_LIBRARIES})
+        synchronization.lib
+        userenv
+        ws2_32
+        wsock32
+)
 
 if(SUNSHINE_ENABLE_TRAY)
     list(APPEND PLATFORM_TARGET_FILES
-            "${CMAKE_SOURCE_DIR}/third-party/tray/tray_windows.c")
+            "${CMAKE_SOURCE_DIR}/third-party/tray/src/tray_windows.c")
 endif()

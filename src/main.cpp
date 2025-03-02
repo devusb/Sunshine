@@ -1,18 +1,16 @@
 /**
  * @file src/main.cpp
- * @brief Main entry point for Sunshine.
+ * @brief Definitions for the main entry point for Sunshine.
  */
-
 // standard includes
+#include <codecvt>
 #include <csignal>
 #include <fstream>
 #include <iostream>
 
-// lib includes
-#include <boost/log/expressions.hpp>
-
 // local includes
 #include "confighttp.h"
+#include "display_device.h"
 #include "entry_handler.h"
 #include "globals.h"
 #include "httpcommon.h"
@@ -26,46 +24,43 @@
 #include "video.h"
 
 extern "C" {
-#include <libavutil/log.h>
-#include <rs.h>
+#include "rswrapper.h"
 }
 
 using namespace std::literals;
-namespace bl = boost::log;
-
-struct NoDelete {
-  void
-  operator()(void *) {}
-};
-
-BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", int)
 
 std::map<int, std::function<void()>> signal_handlers;
-void
-on_signal_forwarder(int sig) {
+
+void on_signal_forwarder(int sig) {
   signal_handlers.at(sig)();
 }
 
-template <class FN>
-void
-on_signal(int sig, FN &&fn) {
+template<class FN>
+void on_signal(int sig, FN &&fn) {
   signal_handlers.emplace(sig, std::forward<FN>(fn));
 
   std::signal(sig, on_signal_forwarder);
 }
 
 std::map<std::string_view, std::function<int(const char *name, int argc, char **argv)>> cmd_to_func {
-  { "creds"sv, args::creds },
-  { "help"sv, args::help },
-  { "version"sv, args::version },
+  {"creds"sv, [](const char *name, int argc, char **argv) {
+     return args::creds(name, argc, argv);
+   }},
+  {"help"sv, [](const char *name, int argc, char **argv) {
+     return args::help(name);
+   }},
+  {"version"sv, [](const char *name, int argc, char **argv) {
+     return args::version();
+   }},
 #ifdef _WIN32
-  { "restore-nvprefs-undo"sv, args::restore_nvprefs_undo },
+  {"restore-nvprefs-undo"sv, [](const char *name, int argc, char **argv) {
+     return args::restore_nvprefs_undo();
+   }},
 #endif
 };
 
 #ifdef _WIN32
-LRESULT CALLBACK
-SessionMonitorWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK SessionMonitorWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
   switch (uMsg) {
     case WM_CLOSE:
       DestroyWindow(hwnd);
@@ -73,37 +68,34 @@ SessionMonitorWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_DESTROY:
       PostQuitMessage(0);
       return 0;
-    case WM_ENDSESSION: {
-      // Terminate ourselves with a blocking exit call
-      std::cout << "Received WM_ENDSESSION"sv << std::endl;
-      lifetime::exit_sunshine(0, false);
-      return 0;
-    }
+    case WM_ENDSESSION:
+      {
+        // Terminate ourselves with a blocking exit call
+        std::cout << "Received WM_ENDSESSION"sv << std::endl;
+        lifetime::exit_sunshine(0, false);
+        return 0;
+      }
     default:
       return DefWindowProc(hwnd, uMsg, wParam, lParam);
   }
 }
+
+WINAPI BOOL ConsoleCtrlHandler(DWORD type) {
+  if (type == CTRL_CLOSE_EVENT) {
+    BOOST_LOG(info) << "Console closed handler called";
+    lifetime::exit_sunshine(0, false);
+  }
+  return FALSE;
+}
 #endif
 
-/**
- * @brief Main application entry point.
- * @param argc The number of arguments.
- * @param argv The arguments.
- *
- * EXAMPLES:
- * ```cpp
- * main(1, const char* args[] = {"sunshine", nullptr});
- * ```
- */
-int
-main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
   lifetime::argv = argv;
 
   task_pool_util::TaskPool::task_id_t force_shutdown = nullptr;
 
 #ifdef _WIN32
-  // Switch default C standard library locale to UTF-8 on Windows 10 1803+
-  setlocale(LC_ALL, ".UTF-8");
+  setlocale(LC_ALL, "C");
 #endif
 
 #pragma GCC diagnostic push
@@ -118,89 +110,18 @@ main(int argc, char *argv[]) {
     return 0;
   }
 
-  if (config::sunshine.min_log_level >= 1) {
-    av_log_set_level(AV_LOG_QUIET);
+  auto log_deinit_guard = logging::init(config::sunshine.min_log_level, config::sunshine.log_file);
+  if (!log_deinit_guard) {
+    BOOST_LOG(error) << "Logging failed to initialize"sv;
   }
-  else {
-    av_log_set_level(AV_LOG_DEBUG);
-  }
-  av_log_set_callback([](void *ptr, int level, const char *fmt, va_list vl) {
-    static int print_prefix = 1;
-    char buffer[1024];
-
-    av_log_format_line(ptr, level, fmt, vl, buffer, sizeof(buffer), &print_prefix);
-    if (level <= AV_LOG_ERROR) {
-      // We print AV_LOG_FATAL at the error level. FFmpeg prints things as fatal that
-      // are expected in some cases, such as lack of codec support or similar things.
-      BOOST_LOG(error) << buffer;
-    }
-    else if (level <= AV_LOG_WARNING) {
-      BOOST_LOG(warning) << buffer;
-    }
-    else if (level <= AV_LOG_INFO) {
-      BOOST_LOG(info) << buffer;
-    }
-    else if (level <= AV_LOG_VERBOSE) {
-      // AV_LOG_VERBOSE is less verbose than AV_LOG_DEBUG
-      BOOST_LOG(debug) << buffer;
-    }
-    else {
-      BOOST_LOG(verbose) << buffer;
-    }
-  });
-
-  sink = boost::make_shared<text_sink>();
-
-  boost::shared_ptr<std::ostream> stream { &std::cout, NoDelete {} };
-  sink->locked_backend()->add_stream(stream);
-  sink->locked_backend()->add_stream(boost::make_shared<std::ofstream>(config::sunshine.log_file));
-  sink->set_filter(severity >= config::sunshine.min_log_level);
-
-  sink->set_formatter([message = "Message"s, severity = "Severity"s](const bl::record_view &view, bl::formatting_ostream &os) {
-    constexpr int DATE_BUFFER_SIZE = 21 + 2 + 1;  // Full string plus ": \0"
-
-    auto log_level = view.attribute_values()[severity].extract<int>().get();
-
-    std::string_view log_type;
-    switch (log_level) {
-      case 0:
-        log_type = "Verbose: "sv;
-        break;
-      case 1:
-        log_type = "Debug: "sv;
-        break;
-      case 2:
-        log_type = "Info: "sv;
-        break;
-      case 3:
-        log_type = "Warning: "sv;
-        break;
-      case 4:
-        log_type = "Error: "sv;
-        break;
-      case 5:
-        log_type = "Fatal: "sv;
-        break;
-    };
-
-    char _date[DATE_BUFFER_SIZE];
-    std::time_t t = std::time(nullptr);
-    strftime(_date, DATE_BUFFER_SIZE, "[%Y:%m:%d:%H:%M:%S]: ", std::localtime(&t));
-
-    os << _date << log_type << view.attribute_values()[message].extract<std::string>();
-  });
-
-  // Flush after each log record to ensure log file contents on disk isn't stale.
-  // This is particularly important when running from a Windows service.
-  sink->locked_backend()->auto_flush(true);
-
-  bl::core::get()->add_sink(sink);
-  auto fg = util::fail_guard(log_flush);
 
   // logging can begin at this point
   // if anything is logged prior to this point, it will appear in stdout, but not in the log viewer in the UI
   // the version should be printed to the log before anything else
   BOOST_LOG(info) << PROJECT_NAME << " version: " << PROJECT_VER;
+
+  // Log publisher metadata
+  log_publisher_data();
 
   if (!config::sunshine.cmd.name.empty()) {
     auto fn = cmd_to_func.find(config::sunshine.cmd.name);
@@ -218,6 +139,14 @@ main(int argc, char *argv[]) {
     return fn->second(argv[0], config::sunshine.cmd.argc, config::sunshine.cmd.argv);
   }
 
+  // Adding guard here first as it also performs recovery after crash,
+  // otherwise people could theoretically end up without display output.
+  // It also should be destroyed before forced shutdown to expedite the cleanup.
+  auto display_device_deinit_guard = display_device::init(platf::appdata() / "display_device.state", config::video);
+  if (!display_device_deinit_guard) {
+    BOOST_LOG(error) << "Display device session failed to initialize"sv;
+  }
+
 #ifdef WIN32
   // Modify relevant NVIDIA control panel settings if the system has corresponding gpu
   if (nvprefs_instance.load()) {
@@ -227,7 +156,7 @@ main(int argc, char *argv[]) {
     nvprefs_instance.modify_application_profile();
     // Modify global settings, undo file is produced in the process to restore after improper termination
     nvprefs_instance.modify_global_profile();
-    // Unload dynamic library to survive driver reinstallation
+    // Unload dynamic library to survive driver re-installation
     nvprefs_instance.unload();
   }
 
@@ -264,7 +193,8 @@ main(int argc, char *argv[]) {
       nullptr,
       nullptr,
       nullptr,
-      nullptr);
+      nullptr
+    );
 
     session_monitor_hwnd_promise.set_value(wnd);
 
@@ -292,12 +222,10 @@ main(int argc, char *argv[]) {
       if (session_monitor_join_thread_future.wait_for(1s) == std::future_status::ready) {
         session_monitor_thread.join();
         return;
-      }
-      else {
+      } else {
         BOOST_LOG(warning) << "session_monitor_join_thread_future reached timeout";
       }
-    }
-    else {
+    } else {
       BOOST_LOG(warning) << "session_monitor_hwnd_future reached timeout";
     }
 
@@ -315,39 +243,46 @@ main(int argc, char *argv[]) {
 
   // Create signal handler after logging has been initialized
   auto shutdown_event = mail::man->event<bool>(mail::shutdown);
-  on_signal(SIGINT, [&force_shutdown, shutdown_event]() {
+  on_signal(SIGINT, [&force_shutdown, &display_device_deinit_guard, shutdown_event]() {
     BOOST_LOG(info) << "Interrupt handler called"sv;
 
     auto task = []() {
       BOOST_LOG(fatal) << "10 seconds passed, yet Sunshine's still running: Forcing shutdown"sv;
-      log_flush();
+      logging::log_flush();
       lifetime::debug_trap();
     };
     force_shutdown = task_pool.pushDelayed(task, 10s).task_id;
 
     shutdown_event->raise(true);
+    display_device_deinit_guard = nullptr;
   });
 
-  on_signal(SIGTERM, [&force_shutdown, shutdown_event]() {
+  on_signal(SIGTERM, [&force_shutdown, &display_device_deinit_guard, shutdown_event]() {
     BOOST_LOG(info) << "Terminate handler called"sv;
 
     auto task = []() {
       BOOST_LOG(fatal) << "10 seconds passed, yet Sunshine's still running: Forcing shutdown"sv;
-      log_flush();
+      logging::log_flush();
       lifetime::debug_trap();
     };
     force_shutdown = task_pool.pushDelayed(task, 10s).task_id;
 
     shutdown_event->raise(true);
+    display_device_deinit_guard = nullptr;
   });
+
+#ifdef _WIN32
+  // Terminate gracefully on Windows when console window is closed
+  SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
+#endif
 
   proc::refresh(config::stream.file_apps);
 
   // If any of the following fail, we log an error and continue event though sunshine will not function correctly.
   // This allows access to the UI to fix configuration problems or view the logs.
 
-  auto deinit_guard = platf::init();
-  if (!deinit_guard) {
+  auto platf_deinit_guard = platf::init();
+  if (!platf_deinit_guard) {
     BOOST_LOG(error) << "Platform failed to initialize"sv;
   }
 
@@ -358,6 +293,11 @@ main(int argc, char *argv[]) {
 
   reed_solomon_init();
   auto input_deinit_guard = input::init();
+
+  if (input::probe_gamepads()) {
+    BOOST_LOG(warning) << "No gamepad input is available"sv;
+  }
+
   if (video::probe_encoders()) {
     BOOST_LOG(error) << "Video failed to find working encoder"sv;
   }
@@ -388,8 +328,8 @@ main(int argc, char *argv[]) {
     return lifetime::desired_exit_code;
   }
 
-  std::thread httpThread { nvhttp::start };
-  std::thread configThread { confighttp::start };
+  std::thread httpThread {nvhttp::start};
+  std::thread configThread {confighttp::start};
 
 #ifdef _WIN32
   // If we're using the default port and GameStream is enabled, warn the user

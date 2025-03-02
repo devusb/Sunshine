@@ -1,13 +1,18 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.20)
 # `CMAKE_CUDA_ARCHITECTURES` requires 3.18
+# `set_source_files_properties` requires 3.18
+# `cmake_path(CONVERT ... TO_NATIVE_PATH_LIST ...)` requires 3.20
 # todo - set this conditionally
 
-# todo - set version to 0.0.0 once confident in automated versioning
-project(Sunshine VERSION 0.22.2
+project(Sunshine VERSION 0.0.0
         DESCRIPTION "Self-hosted game stream host for Moonlight"
         HOMEPAGE_URL "https://app.lizardbyte.dev/Sunshine")
 
-set(PROJECT_LICENSE "GPL-3.0")
+set(PROJECT_LICENSE "GPL-3.0-only")
+
+set(PROJECT_FQDN "dev.lizardbyte.app.Sunshine")
+
+set(PROJECT_BRIEF_DESCRIPTION "GameStream host for Moonlight")  # must be <= 35 characters
 
 set(PROJECT_LONG_DESCRIPTION "Offering low latency, cloud gaming server capabilities with support for AMD, Intel, \
 and Nvidia GPUs for hardware encoding. Software encoding is also available. You can connect to Sunshine from any \
@@ -27,6 +32,9 @@ include(${CMAKE_MODULE_PATH}/prep/build_version.cmake)
 
 # cmake build flags
 include(${CMAKE_MODULE_PATH}/prep/options.cmake)
+
+# initial prep
+include(${CMAKE_MODULE_PATH}/prep/init.cmake)
 
 # configure special package files, such as sunshine.desktop, Flatpak manifest, Portfile , etc.
 include(${CMAKE_MODULE_PATH}/prep/special_package_configuration.cmake)

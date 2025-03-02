@@ -1,12 +1,16 @@
 /**
  * @file src/network.cpp
- * @brief todo
+ * @brief Definitions for networking related functions.
  */
-#include "network.h"
+// standard includes
+#include <algorithm>
+#include <sstream>
+
+// local includes
 #include "config.h"
 #include "logging.h"
+#include "network.h"
 #include "utility.h"
-#include <algorithm>
 
 using namespace std::literals;
 
@@ -32,8 +36,7 @@ namespace net {
     ip::make_network_v6("fe80::/64"sv),
   };
 
-  net_e
-  from_enum_string(const std::string_view &view) {
+  net_e from_enum_string(const std::string_view &view) {
     if (view == "wan") {
       return WAN;
     }
@@ -44,8 +47,7 @@ namespace net {
     return PC;
   }
 
-  net_e
-  from_address(const std::string_view &view) {
+  net_e from_address(const std::string_view &view) {
     auto addr = normalize_address(ip::make_address(view));
 
     if (addr.is_v6()) {
@@ -60,8 +62,7 @@ namespace net {
           return LAN;
         }
       }
-    }
-    else {
+    } else {
       for (auto &range : pc_ips_v4) {
         if (range.hosts().find(addr.to_v4()) != range.hosts().end()) {
           return PC;
@@ -78,8 +79,7 @@ namespace net {
     return WAN;
   }
 
-  std::string_view
-  to_enum_string(net_e net) {
+  std::string_view to_enum_string(net_e net) {
     switch (net) {
       case PC:
         return "pc"sv;
@@ -93,13 +93,7 @@ namespace net {
     return "wan"sv;
   }
 
-  /**
-   * @brief Returns the `af_e` enum value for the `address_family` config option value.
-   * @param view The config option value.
-   * @return The `af_e` enum value.
-   */
-  af_e
-  af_from_enum_string(const std::string_view &view) {
+  af_e af_from_enum_string(const std::string_view &view) {
     if (view == "ipv4") {
       return IPV4;
     }
@@ -111,13 +105,7 @@ namespace net {
     return BOTH;
   }
 
-  /**
-   * @brief Returns the wildcard binding address for a given address family.
-   * @param af Address family.
-   * @return Normalized address.
-   */
-  std::string_view
-  af_to_any_address_string(af_e af) {
+  std::string_view af_to_any_address_string(af_e af) {
     switch (af) {
       case IPV4:
         return "0.0.0.0"sv;
@@ -129,14 +117,7 @@ namespace net {
     return "::"sv;
   }
 
-  /**
-   * @brief Converts an address to a normalized form.
-   * @details Normalization converts IPv4-mapped IPv6 addresses into IPv4 addresses.
-   * @param address The address to normalize.
-   * @return Normalized address.
-   */
-  boost::asio::ip::address
-  normalize_address(boost::asio::ip::address address) {
+  boost::asio::ip::address normalize_address(boost::asio::ip::address address) {
     // Convert IPv6-mapped IPv4 addresses into regular IPv4 addresses
     if (address.is_v6()) {
       auto v6 = address.to_v6();
@@ -148,52 +129,31 @@ namespace net {
     return address;
   }
 
-  /**
-   * @brief Returns the given address in normalized string form.
-   * @details Normalization converts IPv4-mapped IPv6 addresses into IPv4 addresses.
-   * @param address The address to normalize.
-   * @return Normalized address in string form.
-   */
-  std::string
-  addr_to_normalized_string(boost::asio::ip::address address) {
+  std::string addr_to_normalized_string(boost::asio::ip::address address) {
     return normalize_address(address).to_string();
   }
 
-  /**
-   * @brief Returns the given address in a normalized form for in the host portion of a URL.
-   * @details Normalization converts IPv4-mapped IPv6 addresses into IPv4 addresses.
-   * @param address The address to normalize and escape.
-   * @return Normalized address in URL-escaped string.
-   */
-  std::string
-  addr_to_url_escaped_string(boost::asio::ip::address address) {
+  std::string addr_to_url_escaped_string(boost::asio::ip::address address) {
     address = normalize_address(address);
     if (address.is_v6()) {
-      return "["s + address.to_string() + ']';
-    }
-    else {
+      std::stringstream ss;
+      ss << '[' << address.to_string() << ']';
+      return ss.str();
+    } else {
       return address.to_string();
     }
   }
 
-  /**
-   * @brief Returns the encryption mode for the given remote endpoint address.
-   * @param address The address used to look up the desired encryption mode.
-   * @return The WAN or LAN encryption mode, based on the provided address.
-   */
-  int
-  encryption_mode_for_address(boost::asio::ip::address address) {
+  int encryption_mode_for_address(boost::asio::ip::address address) {
     auto nettype = net::from_address(address.to_string());
     if (nettype == net::net_e::PC || nettype == net::net_e::LAN) {
       return config::stream.lan_encryption_mode;
-    }
-    else {
+    } else {
       return config::stream.wan_encryption_mode;
     }
   }
 
-  host_t
-  host_create(af_e af, ENetAddress &addr, std::size_t peers, std::uint16_t port) {
+  host_t host_create(af_e af, ENetAddress &addr, std::uint16_t port) {
     static std::once_flag enet_init_flag;
     std::call_once(enet_init_flag, []() {
       enet_initialize();
@@ -203,7 +163,8 @@ namespace net {
     enet_address_set_host(&addr, any_addr.data());
     enet_address_set_port(&addr, port);
 
-    auto host = host_t { enet_host_create(af == IPV4 ? AF_INET : AF_INET6, &addr, peers, 0, 0, 0) };
+    // Maximum of 128 clients, which should be enough for anyone
+    auto host = host_t {enet_host_create(af == IPV4 ? AF_INET : AF_INET6, &addr, 128, 0, 0, 0)};
 
     // Enable opportunistic QoS tagging (automatically disables if the network appears to drop tagged packets)
     enet_socket_set_option(host->socket, ENET_SOCKOPT_QOS, 1);
@@ -211,8 +172,7 @@ namespace net {
     return host;
   }
 
-  void
-  free_host(ENetHost *host) {
+  void free_host(ENetHost *host) {
     std::for_each(host->peers, host->peers + host->peerCount, [](ENetPeer &peer_ref) {
       ENetPeer *peer = &peer_ref;
 
@@ -224,18 +184,7 @@ namespace net {
     enet_host_destroy(host);
   }
 
-  /**
-   * @brief Map a specified port based on the base port.
-   * @param port The port to map as a difference from the base port.
-   * @return `std:uint16_t` : The mapped port number.
-   *
-   * EXAMPLES:
-   * ```cpp
-   * std::uint16_t mapped_port = net::map_port(1);
-   * ```
-   */
-  std::uint16_t
-  map_port(int port) {
+  std::uint16_t map_port(int port) {
     // calculate the port from the config port
     auto mapped_port = (std::uint16_t)((int) config::sunshine.port + port);
 
@@ -244,8 +193,34 @@ namespace net {
       BOOST_LOG(warning) << "Port out of range: "sv << mapped_port;
     }
 
-    // TODO: Ensure port is not already in use by another application
-
     return mapped_port;
+  }
+
+  /**
+   * @brief Returns a string for use as the instance name for mDNS.
+   * @param hostname The hostname to use for instance name generation.
+   * @return Hostname-based instance name or "Sunshine" if hostname is invalid.
+   */
+  std::string mdns_instance_name(const std::string_view &hostname) {
+    // Start with the unmodified hostname
+    std::string instancename {hostname.data(), hostname.size()};
+
+    // Truncate to 63 characters per RFC 6763 section 7.2.
+    if (instancename.size() > 63) {
+      instancename.resize(63);
+    }
+
+    for (auto i = 0; i < instancename.size(); i++) {
+      // Replace any spaces with dashes
+      if (instancename[i] == ' ') {
+        instancename[i] = '-';
+      } else if (!std::isalnum(instancename[i]) && instancename[i] != '-') {
+        // Stop at the first invalid character
+        instancename.resize(i);
+        break;
+      }
+    }
+
+    return !instancename.empty() ? instancename : "Sunshine";
   }
 }  // namespace net

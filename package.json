@@ -1,15 +1,21 @@
 {
+  "name": "sunshine",
+  "version": "0.0.0",
   "scripts": {
     "build": "vite build --debug",
-    "dev": "vite build --watch"
+    "build-clean": "vite build --debug --emptyOutDir",
+    "dev": "vite build --watch",
+    "serve": "serve ./tests/fixtures/http --no-port-switching"
   },
   "dependencies": {
-    "@fortawesome/fontawesome-free": "6.5.1",
-    "@popperjs/core": "2.11.8",
+    "@lizardbyte/shared-web": "2024.921.191855",
+    "vue": "3.5.13",
+    "vue-i18n": "11.1.1"
+  },
+  "devDependencies": {
     "@vitejs/plugin-vue": "4.6.2",
-    "bootstrap": "5.3.3",
-    "vite": "4.5.2",
-    "vite-plugin-ejs": "1.6.4",
-    "vue": "3.4.5"
+    "serve": "14.2.3",
+    "vite": "4.5.9",
+    "vite-plugin-ejs": "1.6.4"
   }
 }
